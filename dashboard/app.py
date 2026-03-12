@@ -3,6 +3,10 @@ Dashboard interativo para predição de readmissão hospitalar.
 Executa localmente usando Streamlit + modelo Keras salvo.
 """
 
+import os
+import sys
+import json
+
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -11,8 +15,6 @@ import matplotlib
 matplotlib.use('Agg')
 import seaborn as sns
 import joblib
-import json
-import os
 import tensorflow as tf
 
 # ──────────────────────────────────────────────
@@ -20,14 +22,24 @@ import tensorflow as tf
 # ──────────────────────────────────────────────
 
 BASE_DIR  = os.path.dirname(os.path.abspath(__file__))
+ROOT_DIR  = os.path.join(BASE_DIR, '..')
 MODEL_DIR = os.path.join(BASE_DIR, '..', 'model')
 DATA_PATH = os.path.join(BASE_DIR, '..', 'data', 'hospital_readmission.csv')
+
+if ROOT_DIR not in sys.path:
+    sys.path.insert(0, ROOT_DIR)
+
+from utils.preprocessing import build_feature_vector, classify_risk, RISK_LOW, RISK_MODERATE  # noqa: E402
 
 st.set_page_config(
     page_title="Readmissão Hospitalar | ML Dashboard",
     page_icon="🏥",
     layout="wide"
 )
+
+# ──────────────────────────────────────────────
+# Carregamento de artefatos
+# ──────────────────────────────────────────────
 
 @st.cache_resource
 def load_artifacts():
@@ -39,43 +51,14 @@ def load_artifacts():
         metrics = json.load(f)
     return model, scaler, encoders, feature_cols, metrics
 
+
 @st.cache_data
 def load_data():
     return pd.read_csv(DATA_PATH)
 
+
 model, scaler, encoders, feature_cols, metrics = load_artifacts()
 df = load_data()
-
-# ──────────────────────────────────────────────
-# Helpers
-# ──────────────────────────────────────────────
-
-def preprocess_input(inputs: dict) -> np.ndarray:
-    cat_cols = ['diag_primary', 'hba1c_result', 'glucose_serum_test',
-                'insulin', 'change_medications', 'diabetes_medication', 'gender']
-    for col in cat_cols:
-        le = encoders[col]
-        inputs[col + '_enc'] = int(le.transform([inputs[col]])[0])
-
-    risk_score = (
-        inputs['number_inpatient'] * 2 +
-        inputs['number_emergency'] +
-        (1 if inputs['hba1c_result'] in ['>7', '>8'] else 0) +
-        (1 if inputs['glucose_serum_test'] in ['>200', '>300'] else 0)
-    )
-    row = [
-        inputs['age_numeric'], inputs['gender_enc'], inputs['diag_primary_enc'],
-        inputs['time_in_hospital'], inputs['num_medications'], inputs['num_procedures'],
-        inputs['num_diagnoses'], inputs['num_lab_procedures'],
-        inputs['number_outpatient'], inputs['number_emergency'], inputs['number_inpatient'],
-        inputs['hba1c_result_enc'], inputs['glucose_serum_test_enc'],
-        inputs['insulin_enc'], inputs['change_medications_enc'],
-        inputs['diabetes_medication_enc'],
-        risk_score,
-        inputs['num_medications'] * inputs['num_diagnoses'],
-        inputs['number_outpatient'] + inputs['number_emergency'] + inputs['number_inpatient']
-    ]
-    return np.array([row], dtype=float)
 
 # ──────────────────────────────────────────────
 # Layout
@@ -133,9 +116,17 @@ with tab1:
             'hba1c_result': hba1c, 'glucose_serum_test': gluc,
             'insulin': ins, 'change_medications': chg, 'diabetes_medication': diab
         }
-        X = preprocess_input(inputs)
-        X_sc = scaler.transform(X)
-        prob = float(model.predict(X_sc, verbose=0)[0][0])
+
+        try:
+            X = build_feature_vector(inputs, encoders)
+            X_sc = scaler.transform(X)
+            prob = float(model.predict(X_sc, verbose=0)[0][0])
+        except ValueError as exc:
+            st.error(f"Erro nos dados de entrada: {exc}")
+            st.stop()
+        except Exception as exc:
+            st.error(f"Erro ao processar a predição: {exc}")
+            st.stop()
 
         st.divider()
         r1, r2, r3 = st.columns(3)
@@ -143,9 +134,9 @@ with tab1:
         with r1:
             st.metric("Probabilidade de Readmissão", f"{prob:.1%}")
         with r2:
-            if prob < 0.35:
+            if prob < RISK_LOW:
                 st.metric("Nível de Risco", "🟢 BAIXO")
-            elif prob < 0.60:
+            elif prob < RISK_MODERATE:
                 st.metric("Nível de Risco", "🟡 MODERADO")
             else:
                 st.metric("Nível de Risco", "🔴 ALTO")
@@ -154,23 +145,26 @@ with tab1:
 
         # Gauge
         fig, ax = plt.subplots(figsize=(5, 2.5))
-        colors = ['#2ecc71' if i/100 < 0.35 else '#f39c12' if i/100 < 0.60 else '#e74c3c' for i in range(100)]
         ax.barh(0, 100, height=0.4, color='#ecf0f1')
-        ax.barh(0, prob*100, height=0.4,
-                color='#2ecc71' if prob<0.35 else '#f39c12' if prob<0.60 else '#e74c3c')
-        ax.axvline(prob*100, color='#2c3e50', linewidth=2)
-        ax.set_xlim(0, 100); ax.set_yticks([]); ax.set_xlabel("Probabilidade (%)")
+        bar_color = '#2ecc71' if prob < RISK_LOW else '#f39c12' if prob < RISK_MODERATE else '#e74c3c'
+        ax.barh(0, prob * 100, height=0.4, color=bar_color)
+        ax.axvline(prob * 100, color='#2c3e50', linewidth=2)
+        ax.set_xlim(0, 100)
+        ax.set_yticks([])
+        ax.set_xlabel("Probabilidade (%)")
         ax.set_title(f"Risco estimado: {prob:.1%}", fontweight='bold')
-        ax.axvline(35, color='gray', linestyle='--', alpha=0.5, linewidth=0.8)
-        ax.axvline(60, color='gray', linestyle='--', alpha=0.5, linewidth=0.8)
+        ax.axvline(RISK_LOW * 100,      color='gray', linestyle='--', alpha=0.5, linewidth=0.8)
+        ax.axvline(RISK_MODERATE * 100, color='gray', linestyle='--', alpha=0.5, linewidth=0.8)
         st.pyplot(fig, use_container_width=True)
+        plt.close(fig)
 
-        if prob < 0.35:
-            st.success("**Recomendação:** Paciente com baixo risco. Alta padrão com orientações de retorno em 30 dias.")
-        elif prob < 0.60:
-            st.warning("**Recomendação:** Risco moderado. Acompanhamento ambulatorial em 14 dias e revisão de medicamentos.")
+        _, recommendation = classify_risk(prob)
+        if prob < RISK_LOW:
+            st.success(f"**Recomendação:** {recommendation}")
+        elif prob < RISK_MODERATE:
+            st.warning(f"**Recomendação:** {recommendation}")
         else:
-            st.error("**Recomendação:** Alto risco de readmissão. Plano de alta reforçado, contato ativo em 7 dias e revisão da medicação.")
+            st.error(f"**Recomendação:** {recommendation}")
 
 # ══════════════════════════════════════
 # TAB 2: Análise
@@ -186,21 +180,18 @@ with tab2:
 
     fig, axes = plt.subplots(1, 3, figsize=(14, 4))
 
-    # Readmissão por diagnóstico
     ct = df.groupby('diag_primary')['readmitted_30days'].mean().sort_values(ascending=True)
     ct.plot(kind='barh', ax=axes[0], color='#1F5C99')
     axes[0].set_title('Taxa de Readmissão por\nDiagnóstico Principal')
     axes[0].set_xlabel('Taxa de Readmissão')
 
-    # Readmissão por faixa etária
-    df['age_group'] = pd.cut(df['age_numeric'], bins=[0,30,50,70,100],
+    df['age_group'] = pd.cut(df['age_numeric'], bins=[0, 30, 50, 70, 100],
                               labels=['<30', '30-50', '50-70', '>70'])
     ag = df.groupby('age_group', observed=True)['readmitted_30days'].mean()
     ag.plot(kind='bar', ax=axes[1], color='#E94560', rot=0)
     axes[1].set_title('Taxa de Readmissão\npor Faixa Etária')
     axes[1].set_ylabel('Taxa de Readmissão')
 
-    # Distribuição HbA1c
     hba = df.groupby('hba1c_result')['readmitted_30days'].mean()
     hba.plot(kind='bar', ax=axes[2], color='#27ae60', rot=0)
     axes[2].set_title('Taxa de Readmissão\npor Resultado HbA1c')
@@ -208,18 +199,20 @@ with tab2:
 
     plt.tight_layout()
     st.pyplot(fig, use_container_width=True)
+    plt.close(fig)
 
     st.subheader("Distribuição das Internações Anteriores")
     fig2, ax2 = plt.subplots(figsize=(10, 3))
-    readm = df[df['readmitted_30days']==1]['number_inpatient']
-    no_readm = df[df['readmitted_30days']==0]['number_inpatient']
-    ax2.hist(readm, bins=6, alpha=0.6, label='Readmitido', color='#e74c3c')
+    readm    = df[df['readmitted_30days'] == 1]['number_inpatient']
+    no_readm = df[df['readmitted_30days'] == 0]['number_inpatient']
+    ax2.hist(readm,    bins=6, alpha=0.6, label='Readmitido',     color='#e74c3c')
     ax2.hist(no_readm, bins=6, alpha=0.6, label='Não Readmitido', color='#2ecc71')
     ax2.set_xlabel('N° de Internações Anteriores')
     ax2.set_ylabel('Contagem')
     ax2.legend()
     ax2.set_title('Distribuição de Internações Anteriores por Desfecho')
     st.pyplot(fig2, use_container_width=True)
+    plt.close(fig2)
 
 # ══════════════════════════════════════
 # TAB 3: Performance
@@ -232,9 +225,20 @@ with tab3:
     p2.metric("Average Precision", f"{metrics['average_precision']:.4f}")
     p3.metric("Amostras de Teste", f"{metrics['test_samples']:,}")
 
+    if metrics.get('f1_score'):
+        q1, q2, q3 = st.columns(3)
+        q1.metric("F1-Score", f"{metrics['f1_score']:.4f}")
+        q2.metric("Precisão", f"{metrics['precision']:.4f}")
+        q3.metric("Recall (Sensibilidade)", f"{metrics['recall']:.4f}")
+
     img_path = os.path.join(MODEL_DIR, 'model_results.png')
     if os.path.exists(img_path):
         st.image(img_path, caption="Resultados do Treinamento e Avaliação", use_container_width=True)
+    else:
+        st.info("Imagem de resultados não encontrada. Execute model/train.py para gerá-la.")
+
+    if metrics.get('model_version'):
+        st.caption(f"Versão do modelo: {metrics['model_version']} | Treinado em: {metrics.get('trained_at', 'N/A')}")
 
     st.subheader("Sobre o Modelo")
     st.markdown("""
