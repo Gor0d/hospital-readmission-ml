@@ -4,6 +4,7 @@ Treinamento do modelo de predição de readmissão hospitalar com Keras.
 
 import sys
 import os
+import datetime
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import numpy as np
@@ -19,7 +20,8 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.metrics import (classification_report, confusion_matrix,
                               roc_auc_score, roc_curve, precision_recall_curve,
-                              average_precision_score)
+                              average_precision_score, f1_score,
+                              precision_score, recall_score)
 
 import tensorflow as tf
 from tensorflow import keras
@@ -167,11 +169,18 @@ print("\nAvaliando no conjunto de teste...")
 y_pred_prob = model.predict(X_test_sc).flatten()
 y_pred = (y_pred_prob >= 0.5).astype(int)
 
-auc = roc_auc_score(y_test, y_pred_prob)
-ap  = average_precision_score(y_test, y_pred_prob)
+auc       = roc_auc_score(y_test, y_pred_prob)
+ap        = average_precision_score(y_test, y_pred_prob)
+f1        = f1_score(y_test, y_pred)
+precision = precision_score(y_test, y_pred)
+recall    = recall_score(y_test, y_pred)
+tn, fp, fn, tp = confusion_matrix(y_test, y_pred).ravel()
 
-print(f"\nROC-AUC:  {auc:.4f}")
+print(f"\nROC-AUC:       {auc:.4f}")
 print(f"Avg Precision: {ap:.4f}")
+print(f"F1-Score:      {f1:.4f}")
+print(f"Precision:     {precision:.4f}")
+print(f"Recall:        {recall:.4f}")
 print("\nClassification Report:")
 print(classification_report(y_test, y_pred,
       target_names=['Não Readmitido', 'Readmitido']))
@@ -234,10 +243,19 @@ joblib.dump(encoders, os.path.join(ARTIFACTS_DIR, 'encoders.pkl'))
 joblib.dump(feature_cols, os.path.join(ARTIFACTS_DIR, 'feature_cols.pkl'))
 
 metrics = {
+    'model_version': '1.0.0',
+    'trained_at': datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'),
     'roc_auc': round(auc, 4),
     'average_precision': round(ap, 4),
+    'f1_score': round(f1, 4),
+    'precision': round(precision, 4),
+    'recall': round(recall, 4),
+    'true_positives': int(tp),
+    'true_negatives': int(tn),
+    'false_positives': int(fp),
+    'false_negatives': int(fn),
     'test_samples': int(len(y_test)),
-    'feature_count': len(feature_cols)
+    'feature_count': len(feature_cols),
 }
 with open(os.path.join(ARTIFACTS_DIR, 'metrics.json'), 'w') as f:
     json.dump(metrics, f, indent=2)

@@ -1,6 +1,15 @@
 {
-  "roc_auc": 0.6809,
-  "average_precision": 0.7558,
+  "model_version": "1.0.0",
+  "trained_at": "2026-03-12T19:49:56Z",
+  "roc_auc": 0.6848,
+  "average_precision": 0.7575,
+  "f1_score": 0.6826,
+  "precision": 0.7116,
+  "recall": 0.6558,
+  "true_positives": 787,
+  "true_negatives": 481,
+  "false_positives": 319,
+  "false_negatives": 413,
   "test_samples": 2000,
   "feature_count": 19
 }
