@@ -2,10 +2,10 @@
 
 Projeto de **Ciência de Dados** para predição de risco de readmissão hospitalar em 30 dias, utilizando uma rede neural profunda treinada com Keras/TensorFlow.
 
-[![Python](https://img.shields.io/badge/Python-3.10+-blue)](https://python.org)
-[![TensorFlow](https://img.shields.io/badge/TensorFlow-2.x-orange)](https://tensorflow.org)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-green)](https://fastapi.tiangolo.com)
-[![Streamlit](https://img.shields.io/badge/Streamlit-1.x-red)](https://streamlit.io)
+[![Python](https://img.shields.io/badge/Python-3.13+-blue)](https://python.org)
+[![TensorFlow](https://img.shields.io/badge/TensorFlow-2.20+-orange)](https://tensorflow.org)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-green)](https://fastapi.tiangolo.com)
+[![Streamlit](https://img.shields.io/badge/Streamlit-1.35+-red)](https://streamlit.io)
 
 ---
 
@@ -26,6 +26,7 @@ Dataset sintético de **10.000 pacientes**, gerado com base nas características
 - Histórico: internações, emergências e visitas ambulatoriais no último ano
 - Exames clínicos: HbA1c, glicose sérica
 - Medicação: insulina, mudança de medicamentos
+- Features derivadas: `risk_score`, `medication_complexity`, `hospital_utilization`
 
 **Variável alvo:** `readmitted_30days` (binário: 0 = não readmitido, 1 = readmitido)
 
@@ -48,7 +49,7 @@ Dense(1)   → Sigmoid → P(readmissão)
 ```
 
 **Configuração de treinamento:**
-- Otimizador: Adam (lr=0.001)
+- Otimizador: Adam (lr=0.001 com ReduceLROnPlateau)
 - Loss: Binary Crossentropy
 - Regularização: L2 + Dropout + BatchNormalization
 - Early Stopping: monitor=val_AUC, patience=10
@@ -60,9 +61,11 @@ Dense(1)   → Sigmoid → P(readmissão)
 
 | Métrica | Valor |
 |---------|-------|
-| **ROC-AUC** | 0.6809 |
-| **Average Precision** | 0.7558 |
-| **Accuracy** | 0.62 |
+| **ROC-AUC** | 0.6848 |
+| **Average Precision** | 0.7575 |
+| **F1-Score** | 0.6826 |
+| **Precisão** | 0.7116 |
+| **Recall** | 0.6558 |
 
 > ROC-AUC de ~0.68 é consistente com benchmarks da literatura para esse problema clínico com dados tabulares.
 
@@ -73,21 +76,22 @@ Dense(1)   → Sigmoid → P(readmissão)
 ```
 hospital-readmission/
 ├── data/
-│   ├── generate_data.py       # Geração do dataset sintético
+│   ├── generate_data.py           # Geração do dataset sintético
 │   └── hospital_readmission.csv
 ├── model/
-│   ├── train.py               # Treinamento da rede neural (Keras)
-│   ├── best_model.keras       # Modelo salvo
-│   ├── scaler.pkl             # StandardScaler
-│   ├── encoders.pkl           # LabelEncoders categóricos
-│   ├── feature_cols.pkl       # Lista de features
-│   └── metrics.json           # Métricas de avaliação
+│   ├── train.py                   # Treinamento da rede neural (Keras)
+│   ├── best_model.keras           # Modelo salvo
+│   ├── scaler.pkl                 # StandardScaler
+│   ├── encoders.pkl               # LabelEncoders categóricos
+│   ├── feature_cols.pkl           # Lista de features
+│   ├── metrics.json               # Métricas de avaliação
+│   └── model_results.png          # Curvas de treino e avaliação
 ├── api/
-│   └── main.py                # API REST (FastAPI)
+│   └── main.py                    # API REST (FastAPI)
 ├── dashboard/
-│   └── app.py                 # Dashboard interativo (Streamlit)
-├── notebooks/
-│   └── 01_eda_and_modeling.ipynb  # Análise completa documentada
+│   └── app.py                     # Dashboard interativo (Streamlit)
+├── utils/
+│   └── preprocessing.py           # Pré-processamento compartilhado (API + Dashboard)
 ├── requirements.txt
 └── README.md
 ```
@@ -102,26 +106,35 @@ hospital-readmission/
 pip install -r requirements.txt
 ```
 
+> **Windows:** Se ocorrer erro de caminho longo, habilite o suporte a Long Paths:
+> ```powershell
+> # PowerShell como Administrador
+> New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" -Name "LongPathsEnabled" -Value 1 -PropertyType DWORD -Force
+> ```
+
 ### 2. Gerar dataset e treinar modelo
 
 ```bash
-cd data && python generate_data.py
-cd ../model && python train.py
+python data/generate_data.py
+python model/train.py
 ```
 
 ### 3. Iniciar a API
 
 ```bash
-cd api
-uvicorn main:app --reload
+python api/main.py
 ```
 Acesse: [http://localhost:8000/docs](http://localhost:8000/docs) — Swagger UI automático
+
+> Para restringir origens do CORS em produção, defina a variável de ambiente:
+> ```bash
+> set ALLOWED_ORIGINS=https://meudominio.com
+> ```
 
 ### 4. Iniciar o Dashboard
 
 ```bash
-cd dashboard
-streamlit run app.py
+python -m streamlit run dashboard/app.py
 ```
 Acesse: [http://localhost:8501](http://localhost:8501)
 
@@ -158,8 +171,8 @@ curl -X POST "http://localhost:8000/predict" \
   "readmission_probability": 0.7823,
   "risk_level": "Alto",
   "prediction": 1,
-  "recommendation": "Alto risco de readmissão. Plano de alta reforçado, contato ativo em 7 dias e revisão da medicação.",
-  "model_auc": 0.6809
+  "recommendation": "Alto risco de readmissão. Recomendar acompanhamento intensivo, revisão do plano de alta e contato ativo em 7 dias.",
+  "model_auc": 0.6848
 }
 ```
 
@@ -169,9 +182,9 @@ curl -X POST "http://localhost:8000/predict" \
 
 | Categoria | Tecnologias |
 |-----------|-------------|
-| **ML / DL** | TensorFlow, Keras, Scikit-learn |
+| **ML / DL** | TensorFlow 2.20+, Keras, Scikit-learn |
 | **Dados** | Pandas, NumPy |
-| **API** | FastAPI, Uvicorn, Pydantic |
+| **API** | FastAPI, Uvicorn, Pydantic v2 |
 | **Dashboard** | Streamlit, Matplotlib, Seaborn |
 | **Serialização** | Joblib |
 
@@ -179,7 +192,7 @@ curl -X POST "http://localhost:8000/predict" \
 
 ## Sobre
 
-Projeto desenvolvido por **Emerson Guimarães** como parte do portfólio de Ciência de Dados.  
+Projeto desenvolvido por **Emerson Guimarães** como parte do portfólio de Ciência de Dados.
 Contexto: 9+ anos de experiência em ambientes hospitalares, aplicando ML ao problema real de gestão de readmissões.
 
 - LinkedIn: [linkedin.com/in/emersongsguimaraes](https://linkedin.com/in/emersongsguimaraes)
