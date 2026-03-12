@@ -1,4 +1,4 @@
-# 🏥 Hospital Readmission Prediction — ML with Keras
+# Hospital Readmission Prediction — ML with Keras
 
 Projeto de **Ciência de Dados** para predição de risco de readmissão hospitalar em 30 dias, utilizando uma rede neural profunda treinada com Keras/TensorFlow.
 
