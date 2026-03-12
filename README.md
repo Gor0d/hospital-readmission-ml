@@ -17,7 +17,27 @@ Readmissões hospitalares dentro de 30 dias representam um dos principais indica
 
 ## Dataset
 
-Dataset sintético de **10.000 pacientes**, gerado com base nas características do [Diabetes 130-US Hospitals Dataset](https://archive.ics.uci.edu/ml/datasets/diabetes+130-us+hospitals+for+years+1999-2008) (UCI Machine Learning Repository).
+O projeto suporta dois modos de dados:
+
+### Modo 1 — Sintético (padrão, sem download)
+Dataset de **10.000 pacientes** gerado com base nas características do [Diabetes 130-US Hospitals Dataset](https://archive.ics.uci.edu/dataset/296/diabetes+130-us+hospitals+for+years+1999-2008) (UCI ML Repository).
+
+```bash
+python data/generate_data.py
+```
+
+### Modo 2 — Dataset Real UCI (~101.000 pacientes)
+Para usar os dados reais e obter métricas mais robustas:
+
+1. Baixe `diabetic_data.csv` em: [UCI](https://archive.ics.uci.edu/dataset/296/diabetes+130-us+hospitals+for+years+1999-2008) ou [Kaggle](https://www.kaggle.com/datasets/brandao/diabetes)
+2. Coloque o arquivo em `data/`
+3. Execute o processador:
+```bash
+python data/process_real_data.py
+```
+O script mapeia automaticamente colunas ICD-9, faixas de idade e variáveis clínicas para o formato do pipeline.
+
+---
 
 **Features utilizadas (19):**
 - Dados demográficos: idade, gênero
