@@ -198,6 +198,25 @@ curl -X POST "http://localhost:8000/predict" \
 
 ---
 
+## Desafios e Lições Aprendidas
+
+### 1. Teto de performance imposto pelos dados
+Ao comparar DNN (Keras) e XGBoost no mesmo dataset sintético, ambos convergiram para AUC ~0.68. O XGBoost atingiu esse limite em apenas 36 iterações (de 500 possíveis). A conclusão: **o gargalo não era o modelo, era a riqueza dos dados**. Dados sintéticos gerados por uma equação logística simples têm um teto de previsibilidade que nenhum algoritmo consegue superar. A solução está no dataset real UCI (~101.000 pacientes com padrões reais e complexos).
+
+### 2. Divergência entre encoder de treino e inputs de produção
+O `pandas` converte automaticamente a string `'None'` para `NaN` ao ler o CSV — fazendo o `LabelEncoder` aprender `NaN` como classe válida. Na API e no dashboard, os inputs chegavam como a string `'None'`, causando erro de validação. Solução: centralizar o pré-processamento em `utils/preprocessing.py` e converter `'None'` → `np.nan` antes de qualquer encoding.
+
+### 3. Duplicação de lógica entre API e Dashboard
+O código de pré-processamento estava duplicado em `api/main.py` e `dashboard/app.py`. Uma mudança em um arquivo não refletia no outro — risco real de divergência silenciosa nas predições. Solução: extrair para `utils/preprocessing.py` como fonte única de verdade.
+
+### 4. Compatibilidade Python 3.13 + TensorFlow no Windows
+O TensorFlow 2.13 (versão original) não tem suporte para Python 3.13. A versão disponível mais antiga compatível é a 2.20. Adicionalmente, o Windows limitava caminhos a 260 caracteres, impedindo a instalação do TensorFlow (que tem arquivos com caminhos muito longos). Solução: atualizar para TF 2.20+ e habilitar Long Paths no registro do Windows.
+
+### 5. Segurança: CORS aberto e ausência de logging
+A configuração inicial permitia requisições de qualquer origem (`allow_origins=["*"]`) — inadequado para dados clínicos. Adicionalmente, não havia registro de predições para auditoria. Soluções: CORS restrito via variável de ambiente `ALLOWED_ORIGINS` e logging estruturado em todas as predições.
+
+---
+
 ## Tecnologias
 
 | Categoria | Tecnologias |

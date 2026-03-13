@@ -1,0 +1,17 @@
+# Artefatos do modelo (binários grandes, gerados pelo train.py)
+model/*.keras
+model/*.pkl
+model/*.png
+
+# Dados (gerados localmente ou baixados)
+data/hospital_readmission.csv
+data/diabetic_data.csv
+
+# Python
+__pycache__/
+*.py[cod]
+.env
+*.egg-info/
+
+# VS Code
+.vscode/
