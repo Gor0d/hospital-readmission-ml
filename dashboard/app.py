@@ -15,6 +15,7 @@ import matplotlib
 matplotlib.use('Agg')
 import seaborn as sns
 import joblib
+import shap
 import tensorflow as tf
 
 # ──────────────────────────────────────────────
@@ -184,9 +185,22 @@ def load_artifacts():
     scaler       = joblib.load(os.path.join(MODEL_DIR, 'scaler.pkl'))
     encoders     = joblib.load(os.path.join(MODEL_DIR, 'encoders.pkl'))
     feature_cols = joblib.load(os.path.join(MODEL_DIR, 'feature_cols.pkl'))
-    with open(os.path.join(MODEL_DIR, 'metrics.json')) as f:
-        metrics = json.load(f)
-    return model, scaler, encoders, feature_cols, metrics
+    xgb_model    = joblib.load(os.path.join(MODEL_DIR, 'best_model_xgb.pkl'))
+    # Ensemble config (pesos + threshold)
+    ens_path = os.path.join(MODEL_DIR, 'metrics_ensemble.json')
+    if os.path.exists(ens_path):
+        with open(ens_path) as f:
+            ens_cfg = json.load(f)
+        dnn_w     = ens_cfg['dnn_weight']
+        xgb_w     = ens_cfg['xgb_weight']
+        threshold = ens_cfg['best_threshold']
+        metrics   = ens_cfg
+    else:
+        with open(os.path.join(MODEL_DIR, 'metrics.json')) as f:
+            metrics = json.load(f)
+        dnn_w, xgb_w, threshold = 1.0, 0.0, 0.5
+    shap_explainer = shap.TreeExplainer(xgb_model)
+    return model, scaler, encoders, feature_cols, xgb_model, shap_explainer, dnn_w, xgb_w, threshold, metrics
 
 
 @st.cache_data
@@ -194,7 +208,7 @@ def load_data():
     return pd.read_csv(DATA_PATH)
 
 
-model, scaler, encoders, feature_cols, metrics = load_artifacts()
+model, scaler, encoders, feature_cols, xgb_model, shap_explainer, DNN_W, XGB_W, THRESHOLD, metrics = load_artifacts()
 df = load_data()
 
 # Header
@@ -256,7 +270,7 @@ with tab1:
         chg    = st.selectbox("Mudança de Medicamentos", ["No", "Ch"])
         diab   = st.selectbox("Medicação para Diabetes", ["Yes", "No"])
 
-    if st.button("Calcular Risco de Readmissão", type="primary", use_container_width=True):
+    if st.button("Calcular Risco de Readmissão", type="primary", width="stretch"):
         inputs = {
             'age_numeric': age, 'gender': gender, 'diag_primary': diag,
             'time_in_hospital': time_hosp, 'num_medications': num_meds,
@@ -268,9 +282,12 @@ with tab1:
         }
 
         try:
-            X = build_feature_vector(inputs, encoders)
+            X    = build_feature_vector(inputs, encoders)
             X_sc = scaler.transform(X)
-            prob = float(model.predict(X_sc, verbose=0)[0][0])
+            prob_dnn = float(model.predict(X_sc, verbose=0)[0][0])
+            prob_xgb = float(xgb_model.predict_proba(X)[:, 1][0])
+            prob     = DNN_W * prob_dnn + XGB_W * prob_xgb
+            shap_vals = shap_explainer.shap_values(X)[0]
         except ValueError as exc:
             st.error(f"Erro nos dados de entrada: {exc}")
             st.stop()
@@ -283,6 +300,7 @@ with tab1:
 
         risk_color = CP_CYAN if prob < RISK_LOW else CP_YELLOW if prob < RISK_MODERATE else CP_PINK
         risk_label = "BAIXO" if prob < RISK_LOW else "MODERADO" if prob < RISK_MODERATE else "ALTO"
+        prediction = int(prob >= THRESHOLD)
 
         with r1:
             st.metric("Probabilidade de Readmissão", f"{prob:.1%}")
@@ -298,6 +316,7 @@ with tab1:
             )
         with r3:
             st.metric("ROC-AUC do Modelo", f"{metrics['roc_auc']:.4f}")
+            st.caption(f"Threshold: {THRESHOLD:.2f} | Predição: {'Readmissão' if prediction else 'Sem Readmissão'}")
 
         # Gauge
         fig, ax = plt.subplots(figsize=(6, 2))
@@ -312,7 +331,7 @@ with tab1:
         ax.set_xlabel("Probabilidade (%)")
         ax.set_title(f"Risco estimado: {prob:.1%}", fontweight='bold', color=CP_CYAN)
         fig.tight_layout()
-        st.pyplot(fig, use_container_width=True)
+        st.pyplot(fig, width="stretch")
         plt.close(fig)
 
         _, recommendation = classify_risk(prob)
@@ -324,6 +343,44 @@ with tab1:
             f"<p style='color:{CP_TEXT};margin:4px 0 0 0;'>{recommendation}</p></div>",
             unsafe_allow_html=True
         )
+
+        # ── SHAP: explicabilidade por paciente ──
+        st.divider()
+        st.markdown(
+            f"<p style='color:{CP_YELLOW};font-family:Share Tech Mono,monospace;"
+            f"font-size:0.75rem;letter-spacing:2px;'>// EXPLICABILIDADE — SHAP VALUES</p>",
+            unsafe_allow_html=True
+        )
+        st.caption("Contribuição de cada feature para esta predição (componente XGBoost do ensemble). "
+                   "Positivo = aumenta o risco | Negativo = reduz o risco")
+
+        shap_series = pd.Series(shap_vals, index=feature_cols).sort_values()
+        colors_shap = [CP_PINK if v > 0 else CP_CYAN for v in shap_series]
+
+        fig_shap, ax_shap = plt.subplots(figsize=(10, 5))
+        apply_cp_style(fig_shap, ax_shap)
+        ax_shap.barh(shap_series.index, shap_series.values, color=colors_shap, alpha=0.85)
+        ax_shap.axvline(0, color=CP_DIM, linewidth=0.8)
+        ax_shap.set_title(f'SHAP Values — Paciente (prob={prob:.1%})')
+        ax_shap.set_xlabel('Contribuição SHAP')
+        fig_shap.tight_layout()
+        st.pyplot(fig_shap, width="stretch")
+        plt.close(fig_shap)
+
+        top_pos = shap_series[shap_series > 0].nlargest(3)
+        top_neg = shap_series[shap_series < 0].nsmallest(3)
+        if not top_pos.empty:
+            st.markdown(
+                f"<p style='color:{CP_PINK};font-family:Share Tech Mono,monospace;font-size:0.75rem;'>"
+                f"FATORES DE RISCO: {', '.join(f'{f} (+{v:.3f})' for f, v in top_pos.items())}</p>",
+                unsafe_allow_html=True
+            )
+        if not top_neg.empty:
+            st.markdown(
+                f"<p style='color:{CP_CYAN};font-family:Share Tech Mono,monospace;font-size:0.75rem;'>"
+                f"FATORES PROTETORES: {', '.join(f'{f} ({v:.3f})' for f, v in top_neg.items())}</p>",
+                unsafe_allow_html=True
+            )
 
 # ══════════════════════════════════════
 # TAB 2: Analise
@@ -358,10 +415,10 @@ with tab2:
     axes[2].set_ylabel('Taxa de Readmissão')
 
     plt.tight_layout()
-    st.pyplot(fig, use_container_width=True)
+    st.pyplot(fig, width="stretch")
     plt.close(fig)
 
-    st.subheader("Distribuicao das Internações Anteriores")
+    st.subheader("Distribuição das Internações Anteriores")
     fig2, ax2 = plt.subplots(figsize=(10, 3))
     apply_cp_style(fig2, ax2)
     readm    = df[df['readmitted_30days'] == 1]['number_inpatient']
@@ -371,8 +428,8 @@ with tab2:
     ax2.set_xlabel('N de Internações Anteriores')
     ax2.set_ylabel('Contagem')
     ax2.legend(facecolor=CP_CARD, edgecolor=CP_BORDER, labelcolor=CP_TEXT)
-    ax2.set_title('Distribuicao de Internações Anteriores por Desfecho')
-    st.pyplot(fig2, use_container_width=True)
+    ax2.set_title('Distribuição de Internações Anteriores por Desfecho')
+    st.pyplot(fig2, width="stretch")
     plt.close(fig2)
 
 # ══════════════════════════════════════
@@ -389,12 +446,12 @@ with tab3:
     if metrics.get('f1_score'):
         q1, q2, q3 = st.columns(3)
         q1.metric("F1-Score",              f"{metrics['f1_score']:.4f}")
-        q2.metric("Precisao",              f"{metrics['precision']:.4f}")
+        q2.metric("Precisão",              f"{metrics['precision']:.4f}")
         q3.metric("Recall (Sensibilidade)", f"{metrics['recall']:.4f}")
 
     img_path = os.path.join(MODEL_DIR, 'model_results.png')
     if os.path.exists(img_path):
-        st.image(img_path, caption="Resultados do Treinamento e Avaliação", use_container_width=True)
+        st.image(img_path, caption="Resultados do Treinamento e Avaliação", width="stretch")
     else:
         st.info("Imagem nao encontrada. Execute: python model/train.py")
 
@@ -432,7 +489,7 @@ with tab4:
             xgb_metrics = json.load(f)
 
         comparison = {
-            'Metrica':     ['ROC-AUC', 'Average Precision', 'F1-Score', 'Precisao', 'Recall'],
+            'Metrica':     ['ROC-AUC', 'Average Precision', 'F1-Score', 'Precisão', 'Recall'],
             'DNN (Keras)': [metrics.get('roc_auc', '-'), metrics.get('average_precision', '-'),
                             metrics.get('f1_score', '-'), metrics.get('precision', '-'),
                             metrics.get('recall', '-')],
@@ -454,7 +511,7 @@ with tab4:
 
         st.dataframe(
             df_comp.style.apply(highlight_best, axis=1),
-            use_container_width=True, hide_index=True
+            width="stretch", hide_index=True
         )
 
         c1, c2, c3 = st.columns(3)
@@ -464,7 +521,7 @@ with tab4:
 
         if os.path.exists(xgb_img_path):
             st.image(xgb_img_path, caption="XGBoost — ROC, Matriz de Confusao, Feature Importance",
-                     use_container_width=True)
+                     width="stretch")
 
         if os.path.exists(xgb_model_path):
             st.subheader("Importancia das Features (XGBoost)")
@@ -480,7 +537,7 @@ with tab4:
             ax_fi.axvline(importance.mean(), color=CP_PINK, linestyle='--',
                           alpha=0.8, label=f'Media ({importance.mean():.4f})')
             ax_fi.legend(facecolor=CP_CARD, edgecolor=CP_BORDER, labelcolor=CP_TEXT)
-            st.pyplot(fig_fi, use_container_width=True)
+            st.pyplot(fig_fi, width="stretch")
             plt.close(fig_fi)
 
             top3 = importance.nlargest(3)
@@ -526,9 +583,9 @@ with tab4:
 
             st.dataframe(
                 df_comp3.style.apply(highlight_best3, axis=1),
-                use_container_width=True, hide_index=True
+                width="stretch", hide_index=True
             )
 
             if os.path.exists(ens_img_path):
                 st.image(ens_img_path, caption="Ensemble — ROC e Comparacao de Metricas",
-                         use_container_width=True)
+                         width="stretch")

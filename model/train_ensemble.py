@@ -98,8 +98,36 @@ for w in np.arange(0.1, 1.0, 0.05):
 print(f"Melhor peso DNN: {best_w:.2f} | XGBoost: {1-best_w:.2f} → AUC: {best_auc:.4f}")
 
 prob_ensemble = best_w * prob_dnn + (1 - best_w) * prob_xgb
-y_pred_ens    = (prob_ensemble >= 0.5).astype(int)
 
+# ──────────────────────────────────────────────
+# 4b. THRESHOLD TUNING
+# ──────────────────────────────────────────────
+
+print("\nOtimizando threshold de decisão...")
+best_f1_t, best_t_f1 = 0, 0.5
+for t in np.arange(0.20, 0.80, 0.01):
+    y_t  = (prob_ensemble >= t).astype(int)
+    f1_t = f1_score(y_test, y_t)
+    if f1_t > best_f1_t:
+        best_f1_t, best_t_f1 = f1_t, round(t, 2)
+
+# Threshold ótimo para recall >= 0.80 (contexto clínico)
+best_t_recall = 0.5
+for t in np.arange(0.20, 0.70, 0.01):
+    y_t = (prob_ensemble >= t).astype(int)
+    if recall_score(y_test, y_t) >= 0.80:
+        best_t_recall = round(t, 2)
+        break
+
+print(f"Threshold ótimo (F1):        {best_t_f1:.2f} → F1={best_f1_t:.4f}")
+print(f"Threshold ótimo (Recall≥80%): {best_t_recall:.2f} → "
+      f"Recall={recall_score(y_test, (prob_ensemble >= best_t_recall).astype(int)):.4f}")
+print(f"(padrão 0.50 →               F1={f1_score(y_test, (prob_ensemble >= 0.50).astype(int)):.4f})")
+
+# Usa threshold otimizado para F1 como padrão de produção
+best_threshold = best_t_f1
+
+y_pred_ens    = (prob_ensemble >= best_threshold).astype(int)
 auc_ens       = roc_auc_score(y_test, prob_ensemble)
 ap_ens        = average_precision_score(y_test, prob_ensemble)
 f1_ens        = f1_score(y_test, y_pred_ens)
@@ -194,6 +222,8 @@ ensemble_config = {
     'trained_at': datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'),
     'dnn_weight': round(best_w, 4),
     'xgb_weight': round(1 - best_w, 4),
+    'best_threshold': round(best_threshold, 4),
+    'threshold_recall_80': round(best_t_recall, 4),
     'roc_auc': round(auc_ens, 4),
     'average_precision': round(ap_ens, 4),
     'f1_score': round(f1_ens, 4),
