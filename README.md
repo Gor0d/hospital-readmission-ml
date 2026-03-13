@@ -256,8 +256,10 @@ em produção.
 ## Reprodução dos resultados
 
 - Clone the repository:
-
+```bash
 git clone https://github.com/Gor0d/hospital-readmission-ml
+cd hospital-readmission-ml
+```
 
 Install dependencies
 
