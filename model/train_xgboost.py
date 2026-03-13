@@ -77,13 +77,12 @@ X_train, X_val, y_train, y_val = train_test_split(
 
 print(f"Train: {X_train.shape} | Val: {X_val.shape} | Test: {X_test.shape}")
 
-# ──────────────────────────────────────────────
+
 # 2. TREINAMENTO XGBOOST
-# ──────────────────────────────────────────────
+
 
 neg, pos = np.bincount(y_train)
-scale_pos_weight = neg / pos  # equivalente ao class_weight da DNN
-
+scale_pos_weight = neg / pos  
 print("\nTreinando XGBoost...")
 xgb = XGBClassifier(
     n_estimators=500,
@@ -107,9 +106,9 @@ xgb.fit(
 
 print(f"Melhor iteração: {xgb.best_iteration}")
 
-# ──────────────────────────────────────────────
+
 # 3. AVALIAÇÃO
-# ──────────────────────────────────────────────
+
 
 print("\nAvaliando XGBoost no conjunto de teste...")
 y_pred_prob_xgb = xgb.predict_proba(X_test)[:, 1]
@@ -134,9 +133,9 @@ print(f"{'='*40}")
 print(classification_report(y_test, y_pred_xgb,
       target_names=['Não Readmitido', 'Readmitido']))
 
-# ──────────────────────────────────────────────
+
 # 4. COMPARAÇÃO COM A DNN
-# ──────────────────────────────────────────────
+
 
 dnn_metrics_path = os.path.join(ARTIFACTS_DIR, 'metrics.json')
 dnn_metrics = {}
@@ -168,14 +167,14 @@ for metric, xgb_val in [
     print(f"  {metric:<22} {dnn_val:>8.4f} {xgb_val:>10.4f}  {flag} {abs(delta):.4f}")
 print(f"{'='*50}")
 
-# ──────────────────────────────────────────────
+
 # 5. VISUALIZAÇÕES
-# ──────────────────────────────────────────────
+
 
 fig, axes = plt.subplots(1, 3, figsize=(16, 5))
 fig.suptitle('XGBoost — Predição de Readmissão Hospitalar', fontsize=14, fontweight='bold')
 
-# Curva ROC
+
 fpr, tpr, _ = roc_curve(y_test, y_pred_prob_xgb)
 axes[0].plot(fpr, tpr, color='#1F5C99', lw=2, label=f'XGBoost (AUC={auc_xgb:.3f})')
 if dnn_metrics.get('roc_auc'):
@@ -188,7 +187,7 @@ axes[0].set_ylabel('Taxa de Verdadeiro Positivo')
 axes[0].legend()
 axes[0].grid(alpha=0.3)
 
-# Matriz de Confusão
+
 cm = confusion_matrix(y_test, y_pred_xgb)
 sns.heatmap(cm, annot=True, fmt='d', ax=axes[1], cmap='Blues',
             xticklabels=['Não Readmitido', 'Readmitido'],
@@ -197,7 +196,7 @@ axes[1].set_title('Matriz de Confusão')
 axes[1].set_ylabel('Real')
 axes[1].set_xlabel('Predito')
 
-# Feature Importance (top 15)
+
 importance = pd.Series(xgb.feature_importances_, index=feature_cols).nlargest(15)
 importance.sort_values().plot(kind='barh', ax=axes[2], color='#1F5C99')
 axes[2].set_title('Top 15 Features — Importância (XGBoost)')
@@ -208,9 +207,9 @@ plt.savefig(os.path.join(ARTIFACTS_DIR, 'model_results_xgb.png'), dpi=150, bbox_
 plt.close()
 print("\nVisualizações salvas em model_results_xgb.png")
 
-# ──────────────────────────────────────────────
+
 # 6. SALVAR ARTEFATOS
-# ──────────────────────────────────────────────
+
 
 joblib.dump(xgb, os.path.join(ARTIFACTS_DIR, 'best_model_xgb.pkl'))
 

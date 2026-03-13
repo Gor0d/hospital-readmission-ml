@@ -14,7 +14,7 @@ import tensorflow as tf
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-from typing import Literal
+from typing import Literal, List
 
 # ──────────────────────────────────────────────
 # Path para importar utils do pacote raiz
@@ -177,6 +177,40 @@ def predict(patient: PatientInput):
         recommendation=recommendation,
         model_auc=model_metrics['roc_auc'],
     )
+
+
+@app.post("/predict-batch", response_model=List[PredictionResponse], tags=["Prediction"])
+def predict_batch(patients: List[PatientInput]):
+    """
+    Recebe uma lista de pacientes e retorna a probabilidade de readmissão para cada um.
+    Útil para integração hospitalar com múltiplos registros simultâneos.
+    """
+    results = []
+    for i, patient in enumerate(patients):
+        try:
+            X = build_feature_vector(patient.model_dump(), encoders)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=f"Paciente {i}: {exc}")
+
+        try:
+            X_scaled = scaler.transform(X)
+            prob = float(model.predict(X_scaled, verbose=0)[0][0])
+        except Exception as exc:
+            logger.error("Erro na inferência do paciente %d: %s", i, exc)
+            raise HTTPException(status_code=500, detail=f"Erro ao processar paciente {i}.")
+
+        risk, recommendation = classify_risk(prob)
+        results.append(PredictionResponse(
+            readmission_probability=round(prob, 4),
+            risk_level=risk,
+            prediction=int(prob >= 0.5),
+            recommendation=recommendation,
+            model_auc=model_metrics['roc_auc'],
+        ))
+
+    logger.info("Batch concluído | %d pacientes | alto_risco=%d",
+                len(results), sum(1 for r in results if r.risk_level == "Alto"))
+    return results
 
 
 @app.get("/model-info", tags=["Model"])

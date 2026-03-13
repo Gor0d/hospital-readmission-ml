@@ -1,7 +1,7 @@
 {
   "model_version": "1.0.0",
   "model_type": "XGBoost",
-  "trained_at": "2026-03-12T20:11:48Z",
+  "trained_at": "2026-03-13T12:39:00Z",
   "best_iteration": 36,
   "roc_auc": 0.6817,
   "average_precision": 0.755,
