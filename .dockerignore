@@ -1,0 +1,48 @@
+# Controle de versão
+.git/
+.gitignore
+.github/
+
+# Ambientes virtuais
+.venv/
+venv/
+env/
+
+# Dados de treino (não necessários em produção)
+data/
+
+# Arquivos de desenvolvimento
+requirements-dev.txt
+pytest.ini
+tests/
+
+# Cache Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+
+# Variáveis de ambiente com segredos
+.env
+
+# Artefatos temporários
+*.log
+audit/
+*.db
+
+# Documentação
+docs/
+*.md
+
+# Notebooks e scripts de treinamento
+model/train*.py
+model/calibrate.py
+model/fairness.py
+model/compute_baseline.py
+
+# IDE
+.vscode/
+.idea/

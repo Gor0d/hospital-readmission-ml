@@ -37,7 +37,15 @@ def build_feature_vector(data: dict, encoders: dict) -> np.ndarray:
         # Aqui replicamos essa conversão para inputs vindos da API/Dashboard.
         if val == 'None':
             val = np.nan
-        if val not in le.classes_:
+        # np.nan != np.nan, então precisamos de verificação especial para NaN
+        is_nan = isinstance(val, float) and np.isnan(val)
+        nan_in_classes = any(isinstance(c, float) and np.isnan(c) for c in le.classes_)
+        if is_nan and not nan_in_classes:
+            raise ValueError(
+                f"Valor inválido para '{col}': 'None/NaN'. "
+                f"Valores aceitos: {list(le.classes_)}"
+            )
+        elif not is_nan and val not in le.classes_:
             raise ValueError(
                 f"Valor inválido para '{col}': '{val}'. "
                 f"Valores aceitos: {list(le.classes_)}"

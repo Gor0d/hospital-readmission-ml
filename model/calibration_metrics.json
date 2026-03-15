@@ -1,0 +1,8 @@
+{
+  "method": "isotonic",
+  "brier_score_before": 0.222507,
+  "brier_score_after": 0.217734,
+  "brier_improvement": 0.004773,
+  "calibration_samples": 6500,
+  "test_samples": 2000
+}

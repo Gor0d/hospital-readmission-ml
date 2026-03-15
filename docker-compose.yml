@@ -1,0 +1,92 @@
+version: "3.9"
+
+# ============================================================
+# Hospital Readmission ML — Stack de Produção
+#
+# Serviços:
+#   api        — FastAPI (porta 8000)
+#   dashboard  — Streamlit (porta 8501)
+#   prometheus — Coleta de métricas (porta 9090)
+#
+# Uso:
+#   cp .env.example .env && nano .env   # configure SECRET_KEY etc.
+#   docker compose up -d
+#   docker compose logs -f api
+# ============================================================
+
+services:
+  # ── API Principal ────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: readmission-api
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "8000:8000"
+    volumes:
+      # Auditoria persistente (banco SQLite)
+      - ./audit:/app/audit
+      # Modelos como read-only (segurança)
+      - ./model:/app/model:ro
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
+    networks:
+      - readmission-net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  # ── Dashboard ────────────────────────────────────────────
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile.dashboard
+    container_name: readmission-dashboard
+    restart: unless-stopped
+    ports:
+      - "8501:8501"
+    environment:
+      - API_URL=http://api:8000
+    volumes:
+      - ./model:/app/model:ro
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - readmission-net
+
+  # ── Prometheus ───────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.52.0
+    container_name: readmission-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./deploy/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=30d"
+      - "--web.enable-lifecycle"
+    depends_on:
+      - api
+    networks:
+      - readmission-net
+
+volumes:
+  prometheus-data:
+
+networks:
+  readmission-net:
+    driver: bridge

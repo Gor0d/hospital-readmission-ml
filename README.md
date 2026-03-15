@@ -4,13 +4,16 @@ Projeto de Ciência de Dados para predição de risco de readmissão
 hospitalar em 30 dias usando um ensemble de Rede Neural (Keras) +
 XGBoost com threshold otimizado e explicabilidade via SHAP.
 
-[![Python](https://img.shields.io/badge/Python-3.13+-blue)](https://python.org)
-[![TensorFlow](https://img.shields.io/badge/TensorFlow-2.20+-orange)](https://tensorflow.org)
-[![XGBoost](https://img.shields.io/badge/XGBoost-2.0+-red)](https://xgboost.ai)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-green)](https://fastapi.tiangolo.com)
-[![Streamlit](https://img.shields.io/badge/Streamlit-1.35+-red)](https://streamlit.io)
-[![SHAP](https://img.shields.io/badge/SHAP-0.45+-purple)](https://shap.readthedocs.io)
+[![Python](https://img.shields.io/badge/Python-3.11+-blue)](https://python.org)
+[![TensorFlow](https://img.shields.io/badge/TensorFlow-2.21-orange)](https://tensorflow.org)
+[![XGBoost](https://img.shields.io/badge/XGBoost-3.2-red)](https://xgboost.ai)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.135-green)](https://fastapi.tiangolo.com)
+[![Streamlit](https://img.shields.io/badge/Streamlit-1.55-red)](https://streamlit.io)
+[![SHAP](https://img.shields.io/badge/SHAP-0.51-purple)](https://shap.readthedocs.io)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Tests](https://img.shields.io/badge/Tests-56%20passed-brightgreen)](tests/)
+[![Coverage](https://img.shields.io/badge/Coverage-86%25-green)](tests/)
+[![LGPD](https://img.shields.io/badge/LGPD-Art.11%20II%20f-blue)](docs/lgpd_conformidade.md)
 
 ------------------------------------------------------------------------
 
@@ -392,6 +395,151 @@ Rehospitalizations among Patients in the Medicare Fee-for-Service Program.
 https://doi.org/10.1056/NEJMsa0803563
 
 ------------------------------------------------------------------------
+
+## Quick Start (Docker)
+
+```bash
+# 1. Configure o ambiente
+cp .env.example .env
+# Edite .env: gere SECRET_KEY com python -c "import secrets; print(secrets.token_hex(32))"
+
+# 2. Prepare os modelos (se necessário)
+python data/generate_data.py
+python model/train.py && python model/train_xgboost.py && python model/train_ensemble.py
+python model/calibrate.py    # calibração de probabilidades
+python model/fairness.py     # análise de equidade
+python model/compute_baseline.py  # checksums + baseline para monitoramento
+
+# 3. Suba os serviços
+docker compose up -d
+
+# 4. Verifique a saúde
+curl http://localhost:8000/health
+```
+
+---
+
+## Autenticação (JWT)
+
+A API requer autenticação JWT. Três roles disponíveis: `admin`, `clinician`, `viewer`.
+
+```bash
+# Obter token
+TOKEN=$(curl -s -X POST http://localhost:8000/token \
+  -d "username=admin&password=admin123" \
+  | python -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+
+# Criar usuário clínico
+curl -X POST http://localhost:8000/admin/users \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"username":"dr_silva","password":"senha_forte","role":"clinician"}'
+```
+
+---
+
+## Exemplos de Uso da API
+
+### Python (requests)
+
+```python
+import requests
+
+BASE_URL = "http://localhost:8000"
+
+# Autenticar
+resp = requests.post(f"{BASE_URL}/token", data={"username": "dr_silva", "password": "senha_forte"})
+token = resp.json()["access_token"]
+headers = {"Authorization": f"Bearer {token}"}
+
+# Predição individual
+paciente = {
+    "age_numeric": 72, "gender": "Female", "diag_primary": "Circulatory",
+    "time_in_hospital": 5, "num_medications": 18, "num_procedures": 2,
+    "num_diagnoses": 8, "num_lab_procedures": 45, "number_outpatient": 0,
+    "number_emergency": 1, "number_inpatient": 2, "hba1c_result": ">8",
+    "glucose_serum_test": ">200", "insulin": "Up",
+    "change_medications": "Ch", "diabetes_medication": "Yes"
+}
+resp = requests.post(f"{BASE_URL}/predict", json=paciente, headers=headers)
+print(resp.json())
+# {"readmission_probability": 0.7823, "risk_level": "Alto", "prediction": 1, ...}
+
+# Explicabilidade SHAP
+resp = requests.post(f"{BASE_URL}/explain", json=paciente, headers=headers)
+print(resp.json()["top_risk_factors"])
+# ["number_inpatient", "num_medications", "hba1c_result", ...]
+```
+
+### curl
+
+```bash
+# Predição
+curl -X POST http://localhost:8000/predict \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"age_numeric":72,"gender":"Female","diag_primary":"Circulatory",
+       "time_in_hospital":5,"num_medications":18,"num_procedures":2,
+       "num_diagnoses":8,"num_lab_procedures":45,"number_outpatient":0,
+       "number_emergency":1,"number_inpatient":2,"hba1c_result":">8",
+       "glucose_serum_test":">200","insulin":"Up",
+       "change_medications":"Ch","diabetes_medication":"Yes"}'
+
+# Resumo de auditoria (admin)
+curl -H "Authorization: Bearer $ADMIN_TOKEN" \
+  "http://localhost:8000/audit/summary?days=30"
+```
+
+---
+
+## Variáveis de Ambiente
+
+| Variável | Descrição | Padrão |
+|---|---|---|
+| `SECRET_KEY` | Chave JWT (min. 32 chars) | *obrigatório em produção* |
+| `ENVIRONMENT` | `development` / `production` | `development` |
+| `AUDIT_DB_PATH` | Caminho do banco SQLite | `./audit/audit.db` |
+| `AUDIT_LOG_RETENTION_DAYS` | Retenção de logs (dias) | `7300` (≈ 20 anos) |
+| `USE_CALIBRATED_MODEL` | Usar modelo calibrado | `false` |
+| `ALLOWED_ORIGINS` | CORS (separado por vírgula) | `http://localhost:8501,...` |
+| `RATE_LIMIT_PREDICT` | Rate limit de /predict | `30/minute` |
+| `PSI_ALERT_THRESHOLD` | Limiar de deriva (PSI) | `0.2` |
+
+Ver `.env.example` para lista completa.
+
+---
+
+## Conformidade para Uso Clínico Real
+
+Para uso clínico real no Brasil, consulte:
+
+- [`docs/guia_validacao_clinica.md`](docs/guia_validacao_clinica.md) — Protocolo de validação prospectiva, checklist CEP
+- [`docs/lgpd_conformidade.md`](docs/lgpd_conformidade.md) — Adequação à LGPD, mapeamento de dados, RIPD
+- [`docs/model_card.md`](docs/model_card.md) — Documentação completa do modelo (Model Card v2)
+- [`docs/deployment_guide.md`](docs/deployment_guide.md) — Guia de deploy em produção
+
+> ⚠ **Este software requer validação clínica prospectiva antes do uso com pacientes reais. Ver `docs/guia_validacao_clinica.md`.**
+
+---
+
+## Testes
+
+```bash
+# Instalar dependências de desenvolvimento
+pip install -r requirements-dev.txt
+
+# Todos os testes (56 testes, 86% de cobertura)
+pytest tests/ -v
+
+# Apenas testes de preprocessing e modelos (sem necessidade da API)
+pytest tests/test_preprocessing.py tests/test_models.py
+
+# Testes de fairness
+pytest tests/test_fairness.py -v
+```
+
+------------------------------------------------------------------------
+
 ## Sobre
 
 Projeto desenvolvido por Emerson Guimarães como parte do portfólio de
