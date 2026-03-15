@@ -1,3 +1,5 @@
+![Banner](docs/banner.png)
+
 # Hospital Readmission Prediction --- Ensemble ML
 
 Projeto de Ciência de Dados para predição de risco de readmissão
