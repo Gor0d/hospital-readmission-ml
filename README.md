@@ -27,6 +27,24 @@ operacionais.
 
 ------------------------------------------------------------------------
 
+## Screenshots
+
+| Login | Formulário do Paciente |
+|---|---|
+| ![Login](docs/loginscreen-read.png) | ![Formulário](docs/Predição1.png) |
+
+| Resultado da Predição | Explicabilidade SHAP |
+|---|---|
+| ![Resultado](docs/Predição2.png) | ![SHAP](docs/Predição3.png) |
+
+| Análise do Dataset | Performance do Modelo |
+|---|---|
+| ![Dataset](docs/Analise-Dataset.png) | ![Performance](docs/Analise-Perfomance.png) |
+
+![DNN vs XGBoost](docs/DNNxXgboost.png)
+
+------------------------------------------------------------------------
+
 ## Clinical Workflow
 
 Possível fluxo de utilização do modelo em ambiente hospitalar:
@@ -136,11 +154,11 @@ Features derivadas\
 
 ## Melhorias Futuras
 
-- Validação externa com datasets hospitalares adicionais
-- Feature engineering com dados temporais
-- Model calibration (Platt Scaling / Isotonic Regression)
-- Deploy em cloud (AWS / GCP)
-- Monitoramento de drift de dados
+- Validação prospectiva com dados clínicos reais (protocolo CEP)
+- Integração com ERP hospitalar via Oracle/HL7 FHIR
+- Feature engineering com dados temporais (séries de internações)
+- Deploy em cloud (AWS / GCP) com alta disponibilidade
+- Expansão para outros perfis diagnósticos além de diabéticos
 
 ------------------------------------------------------------------------
 ## Arquitetura
