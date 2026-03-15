@@ -15,3 +15,7 @@ __pycache__/
 
 # VS Code
 .vscode/
+
+# Auditoria (banco e exports gerados em runtime)
+audit/audit.db
+audit/*.csv
